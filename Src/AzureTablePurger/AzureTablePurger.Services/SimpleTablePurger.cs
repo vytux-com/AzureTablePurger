@@ -10,6 +10,7 @@ using AzureTablePurger.Common.Extensions;
 
 using Microsoft.Azure.Cosmos.Table;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.EventLog;
 
 namespace AzureTablePurger.Services
 {
@@ -33,6 +34,8 @@ namespace AzureTablePurger.Services
 
         public async Task<Tuple<int, int>> PurgeEntitiesAsync(PurgeEntitiesOptions options, CancellationToken cancellationToken)
         {
+            EventLog eventLog = new EventLog();
+            eventLog.Source = "AzureTablePurger";
             var sw = new Stopwatch();
             sw.Start();
 
@@ -42,6 +45,7 @@ namespace AzureTablePurger.Services
             var table = tableClient.GetTableReference(options.TargetTableName);
 
             _logger.LogInformation($"TargetAccount={tableClient.StorageUri.PrimaryUri}, Table={table.Name}, PurgeRecordsOlderThanDays={options.PurgeRecordsOlderThanDays}");
+            eventLog.WriteEntry($"TargetAccount={tableClient.StorageUri.PrimaryUri}, Table={table.Name}, PurgeRecordsOlderThanDays={options.PurgeRecordsOlderThanDays}", EventLogEntryType.Information, 1000);
 
             var query = _partitionKeyHandler.GetTableQuery(options.PurgeRecordsOlderThanDays);
             var continuationToken = new TableContinuationToken();
@@ -69,7 +73,7 @@ namespace AzureTablePurger.Services
 
                 var partitionsFromPage = GetPartitionsFromPage(page.Results);
 
-                _logger.LogDebug($"Page {pageNumber}: number of partitions grouped by PartitionKey: {partitionsFromPage.Count}");
+                //_logger.LogDebug($"Page {pageNumber}: number of partitions grouped by PartitionKey: {partitionsFromPage.Count}");
 
                 var tasks = new List<Task<int>>();
 
@@ -97,7 +101,7 @@ namespace AzureTablePurger.Services
                 await Task.WhenAll(tasks);
                 var numEntitiesDeletedInThisPage = tasks.Sum(t => t.Result);
                 numEntitiesDeleted += numEntitiesDeletedInThisPage;
-                _logger.LogDebug($"Page {pageNumber}: processing complete, {numEntitiesDeletedInThisPage} entities deleted");
+                //_logger.LogDebug($"Page {pageNumber}: processing complete, {numEntitiesDeletedInThisPage} entities deleted");
 
                 continuationToken = page.ContinuationToken;
                 numPagesProcessed++;
@@ -108,6 +112,7 @@ namespace AzureTablePurger.Services
             var msPerEntity = numEntitiesDeleted > 0 ? (int)(sw.Elapsed.TotalMilliseconds / numEntitiesDeleted) : 0;
             
             _logger.LogInformation($"Finished PurgeEntitiesAsync, processed {numPagesProcessed} pages and deleted {numEntitiesDeleted} entities in {sw.Elapsed} ({entitiesPerSecond} entities per second, or {msPerEntity} ms per entity)");
+            eventLog.WriteEntry($"Finished PurgeEntitiesAsync, processed {numPagesProcessed} pages and deleted {numEntitiesDeleted} entities in {sw.Elapsed} ({entitiesPerSecond} entities per second, or {msPerEntity} ms per entity)", EventLogEntryType.Information, 9000);
 
             return new Tuple<int, int>(numPagesProcessed, numEntitiesDeleted);
         }
